@@ -42,6 +42,7 @@ export function ReportView({ r }: { r: DayReport }) {
         <thead>
           <tr>
             <th />
+            <th>売価</th>
             <th>納品</th>
             <th>販売</th>
             <th>売り逃し</th>
@@ -56,6 +57,7 @@ export function ReportView({ r }: { r: DayReport }) {
                 <th>
                   {c.icon} {c.name}
                 </th>
+                <td>{yen(r.prices?.[c.id] ?? c.price)}</td>
                 <td>{num(s.delivered)}</td>
                 <td>{num(s.sold)}</td>
                 <td class={s.lost ? 'neg' : ''}>{num(s.lost)}</td>

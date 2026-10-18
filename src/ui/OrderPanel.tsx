@@ -57,7 +57,8 @@ export function OrderPanel({ c }: { c: GameController }) {
       {CATEGORIES.map((cat, i) => {
         const f = forecasts[i];
         const qty = store.orders[cat.id];
-        const margin = cat.price - cat.cost;
+        const price = store.prices[cat.id];
+        const margin = price - cat.cost;
         const set = (v: number) => c.dispatch({ type: 'setOrder', siteId: store.siteId, category: cat.id, qty: v });
         const diff = qty - f.recommended;
         return (
@@ -67,7 +68,7 @@ export function OrderPanel({ c }: { c: GameController }) {
                 {cat.icon} {cat.name}
               </span>
               <span class="unit">
-                売価{yen(cat.price)}・原価{yen(cat.cost)}・<b>粗利率{pct(margin / cat.price)}</b>
+                売価{yen(price)}・原価{yen(cat.cost)}・<b>粗利率{pct(margin / price)}</b>
               </span>
             </div>
             <History c={c} cat={cat} />
@@ -98,11 +99,11 @@ export function OrderPanel({ c }: { c: GameController }) {
               </div>
             </div>
             <div class="stepper">
-              <button onClick={() => set(qty - 10)} aria-label={`${cat.name}を10減らす`}>
+              <button onClick={() => set(c.store.orders[cat.id] - 10)} aria-label={`${cat.name}を10減らす`}>
                 −10
               </button>
               <input type="number" inputMode="numeric" min={0} max={2000} value={qty} aria-label={`${cat.name}の発注数`} onInput={(e) => set(+(e.target as HTMLInputElement).value)} />
-              <button onClick={() => set(qty + 10)} aria-label={`${cat.name}を10増やす`}>
+              <button onClick={() => set(c.store.orders[cat.id] + 10)} aria-label={`${cat.name}を10増やす`}>
                 ＋10
               </button>
               <button class="ghost" onClick={() => set(f.recommended)}>

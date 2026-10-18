@@ -6,7 +6,7 @@ import type { Command, CompanyDay, DayReport, SimState, StoreState, TickResult, 
 import { clearSave, loadGame, saveGame } from './save';
 
 export type Speed = 0 | 1 | 3 | 10;
-export type Tab = 'store' | 'order' | 'reports' | 'expand';
+export type Tab = 'store' | 'order' | 'price' | 'reports' | 'expand';
 export type View = 'interior' | 'town';
 
 /** 1倍速で、ゲーム内15分 = 実時間1.5秒（1日 = 2分24秒） */

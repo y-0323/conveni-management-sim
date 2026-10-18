@@ -25,6 +25,8 @@ export interface CategoryStats {
   wasted: number;
   /** 本当の需要 = sold + lost */
   demand: number;
+  /** 売上金額（売価を途中で変えても正しく集計するため） */
+  revenue: number;
 }
 
 export interface DayStats {
@@ -58,6 +60,9 @@ export interface DayReport extends DayStats {
   rent: number;
   /** 出店費用の減価償却（現金は出ていかない） */
   depreciation: number;
+  /** 閉店時点の売価と、店の価格イメージ（来店数の倍率） */
+  prices: Record<CategoryId, number>;
+  priceImage: number;
   grossProfit: number;
   operatingProfit: number;
   inventoryValue: number;
@@ -94,6 +99,8 @@ export interface StoreState {
   inventory: Record<CategoryId, Lot[]>;
   /** 明朝6:00に納品される発注数 */
   orders: Record<CategoryId, number>;
+  /** 売価 */
+  prices: Record<CategoryId, number>;
   today: DayStats;
   reports: DayReport[];
 }
@@ -120,6 +127,8 @@ export interface VisitEvent {
   bought: CategoryId[];
   /** 欲しかったが欠品で買えなかった */
   missed: CategoryId[];
+  /** 支払った金額 */
+  spent: number;
 }
 
 export interface TickResult {
@@ -134,4 +143,5 @@ export interface TickResult {
 export type Command =
   | { type: 'setOrder'; siteId: SiteId; category: CategoryId; qty: number }
   | { type: 'openStore'; siteId: SiteId }
-  | { type: 'rushOrder'; siteId: SiteId; category: CategoryId; qty: number };
+  | { type: 'rushOrder'; siteId: SiteId; category: CategoryId; qty: number }
+  | { type: 'setPrice'; siteId: SiteId; category: CategoryId; price: number };

@@ -1,5 +1,5 @@
 // シミュレーション本体。描画・ブラウザに依存しない純粋なロジック
-import { CATEGORIES, CATEGORY_BY_ID, type CategoryId } from '../data/categories';
+import { CATEGORIES, CATEGORY_BY_ID, priceBounds, priceDemandFactor, type CategoryId } from '../data/categories';
 import { SEGMENTS, type SegmentId } from '../data/segments';
 import { defaultOrders, SITE_BY_ID, SITES, type SiteId } from '../data/sites';
 import { clockOf, dowOf, isWeekend, TICKS_PER_DAY, TICK_MINUTES } from './calendar';
@@ -18,6 +18,8 @@ export const ECONOMY = {
   depreciationDays: 730,
   /** 緊急補充：発注から届くまでの刻み数（2時間）と、1回あたりの配送料 */
   rush: { leadTicks: 8, fee: 2_000, maxQty: 300, lastOrderTick: 64 /* 22:00 */ },
+  /** 価格イメージ：標準より高い分（平均）1割につき来店が何割減るか／安い分で何割増えるか */
+  priceImage: { overPenalty: 0.5, underBonus: 0.5 },
   /** 出店の条件 */
   expansion: { minDays: 7, profitDays: 7, minProfit: 150_000 },
 };
@@ -25,7 +27,7 @@ export const ECONOMY = {
 const HOURLY_SUM = Object.fromEntries(SEGMENTS.map((s) => [s.id, s.hourly.reduce((a, b) => a + b, 0)])) as Record<SegmentId, number>;
 
 function emptyCats(): Record<CategoryId, CategoryStats> {
-  return Object.fromEntries(CATEGORIES.map((c) => [c.id, { startStock: 0, delivered: 0, sold: 0, lost: 0, wasted: 0, demand: 0 }])) as Record<CategoryId, CategoryStats>;
+  return Object.fromEntries(CATEGORIES.map((c) => [c.id, { startStock: 0, delivered: 0, sold: 0, lost: 0, wasted: 0, demand: 0, revenue: 0 }])) as Record<CategoryId, CategoryStats>;
 }
 
 function emptyDay(day: number, weather: WeatherDay): DayStats {
@@ -91,6 +93,7 @@ function newStore(state: SimState, siteId: SiteId, openDay: number): StoreState 
     reputation: siteId === 'main' ? 1 : ECONOMY.newStoreReputation,
     inventory: { bento: [], drink: [], hotsnack: [] },
     orders: defaultOrders(SITE_BY_ID[siteId]),
+    prices: Object.fromEntries(CATEGORIES.map((c) => [c.id, c.price])) as Record<CategoryId, number>,
     today: emptyDay(openDay, weatherOf(state, openDay) ?? { kind: 'sunny', temp: 18 }),
     reports: [],
   };
@@ -176,6 +179,8 @@ function endStoreDay(state: SimState, store: StoreState): DayReport {
     labor,
     rent,
     depreciation,
+    prices: { ...store.prices },
+    priceImage: priceImageFactor(store),
     grossProfit,
     operatingProfit: grossProfit - labor - rent - depreciation - t.rushFees,
     inventoryValue: inventoryValue(store),
@@ -219,11 +224,25 @@ function takeFromStock(store: StoreState, id: CategoryId): boolean {
   return false;
 }
 
-function buyProbability(id: CategoryId, base: number, hour: number, temp: number): number {
+function buyProbability(id: CategoryId, base: number, hour: number, temp: number, price: number, sensitivity: number): number {
   const c = CATEGORY_BY_ID[id];
   const tempF = 1 + c.tempSensitivity * (temp - c.tempBase);
   const hourF = c.hourBias?.[hour] ?? 1;
-  return Math.min(0.95, Math.max(0, base * tempF * hourF));
+  return Math.min(0.95, Math.max(0, base * tempF * hourF * priceDemandFactor(c, price, sensitivity)));
+}
+
+/** 店全体の「割高／割安」イメージによる来店数の倍率 */
+export function priceImageFactor(store: StoreState): number {
+  let over = 0;
+  let under = 0;
+  for (const c of CATEGORIES) {
+    const r = store.prices[c.id] / c.price;
+    over += Math.max(0, r - 1);
+    under += Math.max(0, 1 - r);
+  }
+  const n = CATEGORIES.length;
+  const p = ECONOMY.priceImage;
+  return Math.max(0.5, 1 - p.overPenalty * (over / n) + p.underBonus * (under / n));
 }
 
 export interface RushQuote {
@@ -278,6 +297,7 @@ export function step(state: SimState): TickResult {
     if (!isOpen(store, clock.day)) continue;
     const t = store.today;
     const site = SITE_BY_ID[store.siteId];
+    const image = priceImageFactor(store);
     for (const seg of SEGMENTS) {
       const share = seg.hourly[clock.hour] / HOURLY_SUM[seg.id];
       const perTick = share * (TICK_MINUTES / 60);
@@ -287,20 +307,24 @@ export function step(state: SimState): TickResult {
         perTick *
         (weekend ? seg.weekendFactor : 1) *
         (t.weather.kind === 'rain' ? seg.rainFactor : 1) *
-        store.reputation;
+        store.reputation *
+        image;
       const n = poisson(state, lambda);
       for (let i = 0; i < n; i++) {
-        const v: VisitEvent = { siteId: store.siteId, segment: seg.id, bought: [], missed: [] };
+        const v: VisitEvent = { siteId: store.siteId, segment: seg.id, bought: [], missed: [], spent: 0 };
         for (const c of CATEGORIES) {
-          if (nextRandom(state) >= buyProbability(c.id, seg.buyProb[c.id], clock.hour, t.weather.temp)) continue;
+          const price = store.prices[c.id];
+          if (nextRandom(state) >= buyProbability(c.id, seg.buyProb[c.id], clock.hour, t.weather.temp, price, seg.priceSensitivity)) continue;
           const cs = t.cats[c.id];
           cs.demand += 1;
           if (takeFromStock(store, c.id)) {
             cs.sold += 1;
-            t.sales += c.price;
+            cs.revenue += price;
+            t.sales += price;
             t.cogs += c.cost;
-            t.hourlySales[clock.hour] += c.price;
-            state.cash += c.price;
+            t.hourlySales[clock.hour] += price;
+            state.cash += price;
+            v.spent += price;
             v.bought.push(c.id);
           } else {
             cs.lost += 1;
@@ -364,6 +388,14 @@ export function dispatch(state: SimState, cmd: Command) {
       store.rush.push({ category: cmd.category, qty: Math.round(cmd.qty), arriveTick: q.arriveTick });
       store.today.rushFees += q.fee;
       store.today.rushCount += 1;
+      break;
+    }
+    case 'setPrice': {
+      const store = storeOf(state, cmd.siteId);
+      const c = CATEGORY_BY_ID[cmd.category];
+      if (!store) return;
+      const { min, max } = priceBounds(c);
+      store.prices[cmd.category] = Math.min(max, Math.max(min, Math.round(cmd.price / 10) * 10));
       break;
     }
     case 'openStore': {

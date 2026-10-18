@@ -3,7 +3,7 @@ import { CATEGORIES } from '../src/data/categories';
 import { SITE_BY_ID } from '../src/data/sites';
 import { clockOf, TICKS_PER_DAY } from '../src/sim/calendar';
 import { forecastFor } from '../src/sim/forecast';
-import { canOpen, dispatch, ECONOMY, expansionChecks, inventoryValue, newGame, rushQuote, shelfRatio, step, stockOf, storeOf } from '../src/sim/simulation';
+import { canOpen, dispatch, ECONOMY, expansionChecks, inventoryValue, newGame, priceImageFactor, rushQuote, shelfRatio, step, stockOf, storeOf } from '../src/sim/simulation';
 import type { CompanyDay, DayReport, SimState } from '../src/sim/types';
 
 interface DayResult {
@@ -150,6 +150,58 @@ describe('緊急補充', () => {
     expect(rushQuote(s, main(s), 'bento', 30).ok).toBe(false);
     dispatch(s, { type: 'rushOrder', siteId: 'main', category: 'bento', qty: 30 });
     expect(main(s).rush).toHaveLength(0);
+  });
+});
+
+describe('値付け', () => {
+  it('売価は10円単位で、標準の70%〜150%の範囲に収まる', () => {
+    const s = newGame(1);
+    dispatch(s, { type: 'setPrice', siteId: 'main', category: 'bento', price: 344 });
+    expect(main(s).prices.bento).toBe(340);
+    dispatch(s, { type: 'setPrice', siteId: 'main', category: 'bento', price: 9999 });
+    expect(main(s).prices.bento).toBe(480);
+    dispatch(s, { type: 'setPrice', siteId: 'main', category: 'bento', price: 10 });
+    expect(main(s).prices.bento).toBe(230);
+  });
+
+  it('値上げすると1個あたりの売上は増え、買う人は減る', () => {
+    const base = newGame(4);
+    const high = newGame(4);
+    dispatch(high, { type: 'setPrice', siteId: 'main', category: 'bento', price: 400 });
+    for (const s of [base, high]) dispatch(s, { type: 'setOrder', siteId: 'main', category: 'bento', qty: 2000 });
+    const b = runDays(base, 3).flatMap((d) => d.reports);
+    const h = runDays(high, 3).flatMap((d) => d.reports);
+    const demand = (rs: DayReport[]) => rs.reduce((a, r) => a + r.cats.bento.demand, 0);
+    expect(demand(h)).toBeLessThan(demand(b) * 0.8);
+    expect(h[2].cats.bento.revenue / h[2].cats.bento.sold).toBe(400);
+  });
+
+  it('全体が割高な店は来店が減り、割安な店は増える（価格イメージ）', () => {
+    const s = newGame(1);
+    expect(priceImageFactor(main(s))).toBe(1);
+    for (const c of CATEGORIES) dispatch(s, { type: 'setPrice', siteId: 'main', category: c.id, price: c.price * 1.3 });
+    expect(priceImageFactor(main(s))).toBeLessThan(0.9);
+    for (const c of CATEGORIES) dispatch(s, { type: 'setPrice', siteId: 'main', category: c.id, price: c.price * 0.8 });
+    expect(priceImageFactor(main(s))).toBeGreaterThan(1.05);
+  });
+
+  it('推奨発注は売価を反映する（値上げすると予測が下がる）', () => {
+    const s = newGame(6);
+    runDays(s, 8, autoOrder);
+    const before = forecastFor(s, main(s), 'bento').forecast;
+    dispatch(s, { type: 'setPrice', siteId: 'main', category: 'bento', price: 420 });
+    const after = forecastFor(s, main(s), 'bento').forecast;
+    expect(after).toBeLessThan(before * 0.85);
+  });
+
+  it('上げすぎると利益が減る（値上げが常に正解ではない）', () => {
+    const profit = (mult: number) =>
+      [1, 2].reduce((sum, seed) => {
+        const s = newGame(seed);
+        for (const c of CATEGORIES) dispatch(s, { type: 'setPrice', siteId: 'main', category: c.id, price: c.price * mult });
+        return sum + runDays(s, 21, autoOrder).reduce((a, d) => a + d.company.operatingProfit, 0);
+      }, 0);
+    expect(profit(1.4)).toBeLessThan(profit(1.0));
   });
 });
 

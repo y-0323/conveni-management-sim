@@ -92,6 +92,9 @@ export function StorePanel({ c }: { c: GameController }) {
                 <div class="stock-head">
                   <span class="cat">
                     {cat.icon} {cat.name}
+                    <button class={`price-chip ${store.prices[cat.id] !== cat.price ? 'changed' : ''}`} onClick={() => c.setTab('price')} title="売価を変える">
+                      {yen(store.prices[cat.id])}
+                    </button>
                   </span>
                   <span class="stock-n">{level === 'empty' ? '品切れ！' : level === 'low' ? `残りわずか ${num(stock)}` : `残り ${num(stock)}`}</span>
                 </div>
@@ -112,11 +115,11 @@ export function StorePanel({ c }: { c: GameController }) {
                 <RushButtons c={c} cat={cat.id} />
                 <div class="next-order">
                   <span>明日の発注</span>
-                  <button aria-label={`${cat.name}の明日の発注を10減らす`} onClick={() => setOrder(cat.id, store.orders[cat.id] - 10)}>
+                  <button aria-label={`${cat.name}の明日の発注を10減らす`} onClick={() => setOrder(cat.id, c.store.orders[cat.id] - 10)}>
                     −10
                   </button>
                   <b>{num(store.orders[cat.id])}</b>
-                  <button aria-label={`${cat.name}の明日の発注を10増やす`} onClick={() => setOrder(cat.id, store.orders[cat.id] + 10)}>
+                  <button aria-label={`${cat.name}の明日の発注を10増やす`} onClick={() => setOrder(cat.id, c.store.orders[cat.id] + 10)}>
                     ＋10
                   </button>
                   <button class="link" onClick={() => c.setTab('order')}>

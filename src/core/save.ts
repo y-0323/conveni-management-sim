@@ -21,6 +21,8 @@ export function loadGame(): SimState | null {
     // 後から足した項目を補う
     for (const store of data.stores) {
       store.rush ??= [];
+      store.prices ??= { bento: 320, drink: 160, hotsnack: 190 };
+      for (const k of Object.keys(store.today.cats) as Array<keyof typeof store.today.cats>) store.today.cats[k].revenue ??= 0;
       store.today.rushFees ??= 0;
       store.today.rushCount ??= 0;
     }

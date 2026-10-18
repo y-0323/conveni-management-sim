@@ -1,5 +1,5 @@
 // 出店できる場所（1号店＋空き物件）。商圏の客層の違いが店の個性になる
-import { CATEGORIES, type CategoryId } from './categories';
+import { CATEGORIES, CATEGORY_BY_ID, priceDemandFactor, type CategoryId } from './categories';
 import { SEGMENTS, type SegmentId } from './segments';
 
 export type SiteId = 'main' | 'office' | 'school' | 'home';
@@ -65,6 +65,21 @@ export const SITE_BY_ID = Object.fromEntries(SITES.map((s) => [s.id, s])) as Rec
 /** 本部の商圏調査による、そのカテゴリの1日あたり需要の目安（天気・評判は考慮しない） */
 export function hqEstimate(site: Site, cat: CategoryId, weekend: boolean): number {
   return SEGMENTS.reduce((a, s) => a + s.dailyVisits * site.segmentMult[s.id] * (weekend ? s.weekendFactor : 1) * s.buyProb[cat], 0);
+}
+
+/** 売価を変えた場合の需要の目安（客層ごとの価格への敏感さを反映） */
+export function hqEstimateAt(site: Site, cat: CategoryId, weekend: boolean, price: number): number {
+  const c = CATEGORY_BY_ID[cat];
+  return SEGMENTS.reduce(
+    (a, s) => a + s.dailyVisits * site.segmentMult[s.id] * (weekend ? s.weekendFactor : 1) * s.buyProb[cat] * priceDemandFactor(c, price, s.priceSensitivity),
+    0,
+  );
+}
+
+/** この店の客層の、価格への敏感さ（来店数で加重平均） */
+export function siteSensitivity(site: Site): number {
+  const total = SEGMENTS.reduce((a, s) => a + s.dailyVisits * site.segmentMult[s.id], 0);
+  return SEGMENTS.reduce((a, s) => a + s.dailyVisits * site.segmentMult[s.id] * s.priceSensitivity, 0) / total;
 }
 
 /** 本部の商圏調査による1日の来店数の目安（平日） */

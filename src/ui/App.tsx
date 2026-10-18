@@ -7,6 +7,7 @@ import { createGame } from '../game';
 import { LOW_STOCK } from '../game/StoreScene';
 import { canOpen, isOpen, shelfRatio, stockOf } from '../sim/simulation';
 import { ExpandPanel } from './ExpandPanel';
+import { PricePanel } from './PricePanel';
 import { num, yen } from './format';
 import { useController } from './hooks';
 import { Hud } from './Hud';
@@ -35,6 +36,7 @@ class MapView extends Component {
 const TABS: Array<{ id: Tab; label: string; icon: string }> = [
   { id: 'store', label: '店舗', icon: '🏪' },
   { id: 'order', label: '発注', icon: '📦' },
+  { id: 'price', label: '価格', icon: '💴' },
   { id: 'reports', label: '日報', icon: '📊' },
   { id: 'expand', label: '出店', icon: '🏗' },
 ];
@@ -181,6 +183,7 @@ export function App() {
           </nav>
           {c.tab === 'store' && <StorePanel c={c} />}
           {c.tab === 'order' && <OrderPanel c={c} />}
+          {c.tab === 'price' && <PricePanel c={c} />}
           {c.tab === 'reports' && <ReportsPanel c={c} />}
           {c.tab === 'expand' && <ExpandPanel c={c} />}
           <div class="side-foot">

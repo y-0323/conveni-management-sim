@@ -1,5 +1,6 @@
 // 日報に添えるメンター（エリアマネージャー）の講評
 import { CATEGORIES } from '../data/categories';
+import { avgPrice } from './forecast';
 import { isWeekend } from './calendar';
 import type { DayReport, MentorComment } from './types';
 
@@ -27,6 +28,26 @@ export function mentorComments(r: DayReport, history: DayReport[]): MentorCommen
         tone: 'bad',
         title: `${c.icon} ${c.name}が品切れ`,
         body: `${s.lost}個の売り逃し（機会損失 ${yen(s.lost * margin)}）。売り逃し1個の損は粗利の ${yen(margin)}${margin > c.cost ? 'で、廃棄1個の損より大きい。この商品は多めに発注するのが得策です' : '。品切れはお客さんの評判も下げます'}。`,
+      });
+    }
+  }
+
+  // 値付けの効果：前日から売価を変えたカテゴリについて、需要と粗利の変化を見せる
+  const prevDay = history[history.length - 1];
+  if (prevDay) {
+    for (const c of CATEGORIES) {
+      const p0 = avgPrice(prevDay, c.id);
+      const p1 = avgPrice(r, c.id);
+      if (Math.abs(p1 - p0) < 5) continue;
+      const a = prevDay.cats[c.id];
+      const b = r.cats[c.id];
+      const g0 = a.revenue - a.sold * c.cost - a.wasted * c.cost;
+      const g1 = b.revenue - b.sold * c.cost - b.wasted * c.cost;
+      const dd = a.demand ? b.demand / a.demand - 1 : 0;
+      out.push({
+        tone: g1 >= g0 ? 'good' : 'warn',
+        title: `💴 ${c.icon}${c.name}を${p1 > p0 ? '値上げ' : '値下げ'}（${yen(p0)}→${yen(p1)}）`,
+        body: `需要は ${dd >= 0 ? '+' : ''}${pct(dd)}、この商品の粗利（廃棄後）は ${yen(g0)} → ${yen(g1)}。天気や曜日の違いも混ざるので、数日続けて比べましょう。値上げで1個の粗利が増えても、買う人が減りすぎれば合計は減ります。`,
       });
     }
   }

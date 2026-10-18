@@ -325,7 +325,7 @@ export class TownScene extends Phaser.Scene {
     const x = shop.front!.x * TILE + 8;
     const y = shop.front!.y * TILE + (shop.door!.y === shop.y ? 14 : 2);
     if (v.bought.length) {
-      const yen = v.bought.reduce((a, id) => a + CATEGORY_BY_ID[id].price, 0);
+      const yen = v.spent;
       this.popup(`+¥${yen}`, x + 14, y - 4, '#2a7a3b');
       this.popup(v.bought.map((id) => CATEGORY_BY_ID[id].icon).join(''), w.sprite.x, w.sprite.y - 12, '#000000', 9);
     }

@@ -14,6 +14,8 @@ export interface Segment {
   weekendFactor: number;
   /** 雨の日の来店倍率 */
   rainFactor: number;
+  /** 価格への敏感さ（1 = 平均。大きいほど値上げで買わなくなる） */
+  priceSensitivity: number;
   /** 1回の来店でそのカテゴリを買う確率 */
   buyProb: Record<CategoryId, number>;
   /** 街マップでどの建物から来るか */
@@ -34,6 +36,7 @@ export const SEGMENTS: Segment[] = [
     hourly: WORKER,
     weekendFactor: 0.3,
     rainFactor: 0.95,
+    priceSensitivity: 0.65,
     buyProb: { bento: 0.5, drink: 0.5, hotsnack: 0.2 },
     origin: 'office',
     color: 0x3b5b92,
@@ -45,6 +48,7 @@ export const SEGMENTS: Segment[] = [
     hourly: STUDENT,
     weekendFactor: 0.5,
     rainFactor: 0.85,
+    priceSensitivity: 1.5,
     buyProb: { bento: 0.25, drink: 0.6, hotsnack: 0.4 },
     origin: 'school',
     color: 0xd9822b,
@@ -56,6 +60,7 @@ export const SEGMENTS: Segment[] = [
     hourly: RESIDENT,
     weekendFactor: 1.3,
     rainFactor: 0.75,
+    priceSensitivity: 1.05,
     buyProb: { bento: 0.3, drink: 0.4, hotsnack: 0.15 },
     origin: 'house',
     color: 0x4f8a5b,

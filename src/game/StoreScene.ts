@@ -157,7 +157,7 @@ export class StoreScene extends Phaser.Scene {
       else this.bubble(`${cat.icon}…ない`, c.sprite.x, c.sprite.y - 14, '#c1121f');
     } else if (s.kind === 'pay') {
       c.wait = s.wait!;
-      const yen = c.visit.bought.reduce((a, id) => a + CATEGORY_BY_ID[id].price, 0);
+      const yen = c.visit.spent;
       if (c.visit.bought.includes('hotsnack')) this.bubble('🍗', c.sprite.x - 10, c.sprite.y - 14);
       this.bubble(`+¥${yen}`, REGISTER.x * T + 14, REGISTER.y * T - 26, '#2a7a3b');
       const clerk = this.clerks[0];

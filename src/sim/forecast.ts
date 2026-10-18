@@ -1,10 +1,10 @@
 // 発注の推奨値。実際のコンビニの自動発注と同じく「過去の実績＋天気の経験則」で作る。
 // シミュレーションの内部モデルは使わないので、外れることもある（それが学び）
-import { CATEGORIES, CATEGORY_BY_ID, type CategoryId } from '../data/categories';
+import { CATEGORIES, CATEGORY_BY_ID, priceDemandFactor, type CategoryId } from '../data/categories';
 import { SEGMENTS } from '../data/segments';
 import { hqEstimate, SITE_BY_ID } from '../data/sites';
 import { clockOf, DAY_START_HOUR, isWeekend } from './calendar';
-import { stockOf, weatherOf } from './simulation';
+import { priceImageFactor, stockOf, weatherOf } from './simulation';
 import type { DayReport, SimState, StoreState, WeatherDay } from './types';
 
 /** 店長の経験則：雨なら1割5分減、気温でカテゴリごとに増減 */
@@ -40,8 +40,16 @@ export interface Forecast {
   carryOver: number;
 }
 
+/** その日に実際についた平均売価 */
+export function avgPrice(r: DayReport, id: CategoryId): number {
+  const s = r.cats[id];
+  return s.sold > 0 && s.revenue > 0 ? s.revenue / s.sold : (r.prices?.[id] ?? CATEGORY_BY_ID[id].price);
+}
+
+/** 天気と価格の影響を取り除いた「標準の条件での需要」 */
 function normalizedDemand(r: DayReport, id: CategoryId): number {
-  return r.cats[id].demand / weatherFactor(id, r.weather);
+  const c = CATEGORY_BY_ID[id];
+  return r.cats[id].demand / weatherFactor(id, r.weather) / priceDemandFactor(c, avgPrice(r, id)) / (r.priceImage ?? 1);
 }
 
 function demandEstimate(state: SimState, store: StoreState, id: CategoryId, day: number): { value: number; basis: string } {
@@ -53,7 +61,7 @@ function demandEstimate(state: SimState, store: StoreState, id: CategoryId, day:
   let basis: string;
   if (same.length) {
     base = same.reduce((a, r) => a + normalizedDemand(r, id), 0) / same.length;
-    basis = `過去${same.length}日分の${weekend ? '土日' : '平日'}の需要（売り逃し分を含む）の平均を、天気で補正`;
+    basis = `過去${same.length}日分の${weekend ? '土日' : '平日'}の需要（売り逃し分を含む）の平均を、天気と売価で補正`;
   } else if (past.length) {
     const recent = past.slice(-3);
     // 平日と土日の差は、本部の商圏調査の比率で推測する
@@ -64,7 +72,8 @@ function demandEstimate(state: SimState, store: StoreState, id: CategoryId, day:
     base = hqEstimate(site, id, weekend) * store.reputation;
     basis = '実績がまだないため、本部の商圏調査による標準値';
   }
-  return { value: base * weatherFactor(id, weatherOf(state, day)), basis };
+  const priceF = priceDemandFactor(CATEGORY_BY_ID[id], store.prices[id]) * priceImageFactor(store);
+  return { value: base * weatherFactor(id, weatherOf(state, day)) * priceF, basis };
 }
 
 export function forecastFor(state: SimState, store: StoreState, id: CategoryId): Forecast {
