@@ -1,10 +1,11 @@
 // 発注の推奨値。実際のコンビニの自動発注と同じく「過去の実績＋天気の経験則」で作る。
 // シミュレーションの内部モデルは使わないので、外れることもある（それが学び）
-import { CATEGORIES, CATEGORY_BY_ID, ECONOMY_FALLBACK, type CategoryId } from '../data/categories';
+import { CATEGORIES, CATEGORY_BY_ID, type CategoryId } from '../data/categories';
 import { SEGMENTS } from '../data/segments';
+import { hqEstimate, SITE_BY_ID } from '../data/sites';
 import { clockOf, DAY_START_HOUR, isWeekend } from './calendar';
 import { stockOf, weatherOf } from './simulation';
-import type { DayReport, SimState, WeatherDay } from './types';
+import type { DayReport, SimState, StoreState, WeatherDay } from './types';
 
 /** 店長の経験則：雨なら1割5分減、気温でカテゴリごとに増減 */
 export function weatherFactor(id: CategoryId, w: WeatherDay): number {
@@ -43,48 +44,55 @@ function normalizedDemand(r: DayReport, id: CategoryId): number {
   return r.cats[id].demand / weatherFactor(id, r.weather);
 }
 
-function demandEstimate(state: SimState, id: CategoryId, day: number): { value: number; basis: string } {
+function demandEstimate(state: SimState, store: StoreState, id: CategoryId, day: number): { value: number; basis: string } {
+  const site = SITE_BY_ID[store.siteId];
   const weekend = isWeekend(day);
-  const past = state.reports.filter((r) => r.day < day);
+  const past = store.reports.filter((r) => r.day < day);
   const same = past.filter((r) => isWeekend(r.day) === weekend).slice(-3);
   let base: number;
   let basis: string;
   if (same.length) {
     base = same.reduce((a, r) => a + normalizedDemand(r, id), 0) / same.length;
-    basis = `過去${same.length}日分の${weekend ? '土日' : '平日'}の需要（欠品で売り逃した分を含む）の平均を、天気で補正`;
+    basis = `過去${same.length}日分の${weekend ? '土日' : '平日'}の需要（売り逃し分を含む）の平均を、天気で補正`;
   } else if (past.length) {
     const recent = past.slice(-3);
-    base = (recent.reduce((a, r) => a + normalizedDemand(r, id), 0) / recent.length) * (weekend ? 0.8 : 1.25);
-    basis = `${weekend ? '土日' : '平日'}の実績がまだないため、直近の平均から推測`;
+    // 平日と土日の差は、本部の商圏調査の比率で推測する
+    const ratio = recent.reduce((a, r) => a + hqEstimate(site, id, weekend) / hqEstimate(site, id, isWeekend(r.day)), 0) / recent.length;
+    base = (recent.reduce((a, r) => a + normalizedDemand(r, id), 0) / recent.length) * ratio;
+    basis = `${weekend ? '土日' : '平日'}の実績がまだないため、直近の実績と本部の商圏調査から推測`;
   } else {
-    base = ECONOMY_FALLBACK[id];
-    basis = '実績がまだないため、本部の標準値';
+    base = hqEstimate(site, id, weekend) * store.reputation;
+    basis = '実績がまだないため、本部の商圏調査による標準値';
   }
   return { value: base * weatherFactor(id, weatherOf(state, day)), basis };
 }
 
-export function forecastFor(state: SimState, id: CategoryId): Forecast {
+export function forecastFor(state: SimState, store: StoreState, id: CategoryId): Forecast {
   const c = CATEGORY_BY_ID[id];
   const clock = clockOf(state.tick);
-  const est = demandEstimate(state, id, clock.day + 1);
+  const target = Math.max(clock.day + 1, store.openDay);
+  const est = demandEstimate(state, store, id, target);
   const forecast = Math.round(est.value);
 
   let carryOver = 0;
   let recommended = forecast;
   if (c.lifeDays > 1) {
-    // 今日の残り需要：今日の予測と、ここまでの実績からの見込みを、経過割合で混ぜる
-    const share = elapsedShare(clock.minuteOfDay);
-    const soFar = state.today.cats[id].demand;
-    const planned = demandEstimate(state, id, clock.day).value;
-    const pace = share > 0 ? soFar / share : planned;
-    const todayTotal = planned * (1 - share) + pace * share;
-    const remaining = Math.max(0, todayTotal - soFar);
-    carryOver = Math.max(0, Math.round(stockOf(state, id) - remaining));
+    let remaining = 0;
+    if (store.openDay <= clock.day) {
+      // 今日の残り需要：今日の予測と、ここまでの実績からの見込みを、経過割合で混ぜる
+      const share = elapsedShare(clock.minuteOfDay);
+      const soFar = store.today.cats[id].demand;
+      const planned = demandEstimate(state, store, id, clock.day).value;
+      const pace = share > 0 ? soFar / share : planned;
+      const todayTotal = planned * (1 - share) + pace * share;
+      remaining = Math.max(0, todayTotal - soFar);
+    }
+    carryOver = Math.max(0, Math.round(stockOf(store, id) - remaining));
     recommended = Math.max(0, Math.round(forecast * 1.1 - carryOver));
   }
   return { category: id, forecast, recommended, basis: est.basis, carryOver };
 }
 
-export function allForecasts(state: SimState): Forecast[] {
-  return CATEGORIES.map((c) => forecastFor(state, c.id));
+export function allForecasts(state: SimState, store: StoreState): Forecast[] {
+  return CATEGORIES.map((c) => forecastFor(state, store, c.id));
 }

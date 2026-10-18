@@ -2,11 +2,12 @@ import type { GameController } from '../core/controller';
 import { CATEGORIES, type Category } from '../data/categories';
 import { dayLabel, isWeekend } from '../sim/calendar';
 import { forecastFor } from '../sim/forecast';
+import { SITE_BY_ID } from '../data/sites';
 import { stockOf, weatherOf } from '../sim/simulation';
 import { num, pct, weatherText, yen } from './format';
 
 function History({ c, cat }: { c: GameController; cat: Category }) {
-  const rs = c.state.reports.slice(-7);
+  const rs = c.store.reports.slice(-7);
   if (!rs.length) return <p class="hint">実績はまだありません。</p>;
   const max = Math.max(1, ...rs.map((r) => Math.max(r.cats[cat.id].demand, r.cats[cat.id].delivered)));
   return (
@@ -29,17 +30,20 @@ function History({ c, cat }: { c: GameController; cat: Category }) {
 }
 
 export function OrderPanel({ c }: { c: GameController }) {
-  const day = c.clock.day + 1;
+  const store = c.store;
+  const site = SITE_BY_ID[store.siteId];
+  const day = Math.max(c.clock.day + 1, store.openDay);
   const w = weatherOf(c.state, day);
-  const forecasts = CATEGORIES.map((cat) => forecastFor(c.state, cat.id));
-  const total = CATEGORIES.reduce((a, cat) => a + c.state.orders[cat.id] * cat.cost, 0);
-  const setAll = () => forecasts.forEach((f) => c.dispatch({ type: 'setOrder', category: f.category, qty: f.recommended }));
+  const forecasts = CATEGORIES.map((cat) => forecastFor(c.state, store, cat.id));
+  const total = CATEGORIES.reduce((a, cat) => a + store.orders[cat.id] * cat.cost, 0);
+  const setAll = () => forecasts.forEach((f) => c.dispatch({ type: 'setOrder', siteId: store.siteId, category: f.category, qty: f.recommended }));
+  const preparing = store.openDay > c.clock.day;
 
   return (
     <div class="panel-body">
       <section class="card tomorrow">
         <div>
-          <span class="k">明日の発注</span>
+          <span class="k">{site.name}・{preparing ? '開店日の発注' : '明日の発注'}</span>
           <b class="big">{dayLabel(day)}</b>
           {isWeekend(day) && <span class="tag">週末</span>}
         </div>
@@ -52,9 +56,9 @@ export function OrderPanel({ c }: { c: GameController }) {
 
       {CATEGORIES.map((cat, i) => {
         const f = forecasts[i];
-        const qty = c.state.orders[cat.id];
+        const qty = store.orders[cat.id];
         const margin = cat.price - cat.cost;
-        const set = (v: number) => c.dispatch({ type: 'setOrder', category: cat.id, qty: v });
+        const set = (v: number) => c.dispatch({ type: 'setOrder', siteId: store.siteId, category: cat.id, qty: v });
         const diff = qty - f.recommended;
         return (
           <section class="card order" key={cat.id}>
@@ -90,14 +94,14 @@ export function OrderPanel({ c }: { c: GameController }) {
               </div>
               <div>
                 <span class="k">現在の在庫</span>
-                <b>{num(stockOf(c.state, cat.id))}</b>
+                <b>{num(stockOf(store, cat.id))}</b>
               </div>
             </div>
             <div class="stepper">
               <button onClick={() => set(qty - 10)} aria-label={`${cat.name}を10減らす`}>
                 −10
               </button>
-              <input type="number" inputMode="numeric" min={0} max={2000} value={qty} aria-label={`${cat.name}の発注数`} onChange={(e) => set(+(e.target as HTMLInputElement).value)} />
+              <input type="number" inputMode="numeric" min={0} max={2000} value={qty} aria-label={`${cat.name}の発注数`} onInput={(e) => set(+(e.target as HTMLInputElement).value)} />
               <button onClick={() => set(qty + 10)} aria-label={`${cat.name}を10増やす`}>
                 ＋10
               </button>

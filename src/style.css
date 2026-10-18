@@ -53,7 +53,8 @@ h2, h3 { margin: 0; font-family: var(--pixel); font-weight: 400; }
 
 /* ---------- レイアウト ---------- */
 .main { display: grid; grid-template-columns: minmax(0, 1fr) 400px; min-height: 0; }
-.map { position: relative; min-height: 0; overflow: hidden; touch-action: none; background: #5d8c45; }
+.map-wrap { position: relative; min-height: 0; overflow: hidden; }
+.map { position: absolute; inset: 0; overflow: hidden; touch-action: none; background: #3b2f2a; }
 .map canvas { display: block; }
 .side { display: flex; flex-direction: column; min-height: 0; background: var(--paper); border-left: 3px solid #0f1329; }
 .tabs { display: flex; background: var(--hud-2); padding: 6px 6px 0; gap: 4px; }
@@ -91,7 +92,69 @@ button.link { background: none; border: 0; color: var(--ink-2); font-size: 12px;
 .meter { height: 10px; background: var(--paper-2); border-radius: 99px; overflow: hidden; margin: 4px 0; border: 1px solid var(--line); }
 .meter.big { height: 14px; }
 .meter span { display: block; height: 100%; background: var(--green); transition: width .3s; }
-.meter span.low { background: var(--red); }
+.meter span.low { background: #e07a00; }
+.meter span.empty { background: var(--red); }
+.lvl-low .stock-n { color: #c46a00; font-weight: 700; }
+.lvl-empty .stock-n { color: var(--neg); font-weight: 700; animation: blink 0.9s steps(2) infinite; }
+@keyframes blink { 50% { opacity: .35; } }
+
+/* ---------- 補充・明日の発注（店舗タブ） ---------- */
+.rush-row, .next-order { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 6px; font-size: 12px; }
+.rush-label { font-weight: 700; }
+.rush-row button { min-height: 36px; min-width: 52px; border: 2px solid #1d3557; background: #e7f0ff; color: #1d3557; border-radius: 8px; font-family: var(--pixel); font-size: 14px; }
+.rush-row button:disabled { opacity: .4; cursor: not-allowed; }
+.rush-note { color: var(--ink-2); }
+.rush-eta { display: inline-block; margin-left: 6px; background: #e7f0ff; color: #1d3557; border-radius: 4px; padding: 0 6px; }
+.next-order { background: var(--paper-2); border-radius: 8px; padding: 4px 8px; }
+.next-order > span { color: var(--ink-2); }
+.next-order button { min-height: 32px; min-width: 44px; border: 2px solid var(--line); background: #fff; border-radius: 6px; font-family: var(--pixel); }
+.next-order b { font-family: var(--pixel); font-weight: 400; font-size: 16px; min-width: 40px; text-align: center; }
+.next-order button.link { border: 0; background: none; min-width: 0; margin-left: auto; }
+.stock-list li { padding-bottom: 10px; border-bottom: 1px dashed var(--line); }
+.stock-list li:last-child { border-bottom: 0; padding-bottom: 0; }
+
+/* ---------- 地図の上の表示 ---------- */
+.map-overlay { position: absolute; inset: 0; pointer-events: none; padding: 8px; display: flex; flex-wrap: wrap; align-items: flex-start; gap: 6px; }
+.map-overlay button { pointer-events: auto; }
+.view-toggle { display: flex; background: rgba(15, 19, 41, .85); border-radius: 10px; padding: 3px; gap: 2px; }
+.view-toggle button { border: 0; background: transparent; color: #e6e9ff; font-family: var(--pixel); padding: 6px 12px; border-radius: 8px; min-height: 36px; font-size: 14px; }
+.view-toggle button.on { background: var(--orange); color: #1d2340; }
+.store-name { background: rgba(255, 255, 255, .92); border: 2px solid #0f1329; border-radius: 8px; padding: 4px 10px; font-family: var(--pixel); font-size: 14px; }
+.store-name small { margin-left: 6px; color: var(--warn); font-size: 11px; }
+.alerts { margin-left: auto; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.alert-pill { border: 2px solid #0f1329; border-radius: 99px; padding: 3px 10px; font-family: var(--pixel); font-size: 13px; color: #fff; min-height: 30px; box-shadow: 0 2px 0 #0f1329; }
+.alert-pill.low { background: #e07a00; }
+.alert-pill.empty { background: var(--red); animation: blink 0.9s steps(2) infinite; }
+
+/* ---------- 店舗の切り替え ---------- */
+.store-switch { display: flex; gap: 4px; padding: 6px 6px 0; background: var(--hud-2); overflow-x: auto; scrollbar-width: none; }
+.store-switch button { flex: none; border: 2px solid transparent; background: #3b4580; color: #d9defa; border-radius: 8px; padding: 4px 10px; font-size: 13px; min-height: 34px; white-space: nowrap; }
+.store-switch button.on { background: #fff; color: var(--ink); border-color: var(--orange); font-weight: 700; }
+.store-switch button.add { background: transparent; border: 2px dashed #7f89c9; color: #d9defa; }
+.store-switch button.add.ready { border-color: var(--orange); color: var(--orange); font-weight: 700; animation: blink 1.2s steps(2) infinite; }
+.tabs .dot { display: inline-block; width: 8px; height: 8px; background: var(--orange); border-radius: 50%; margin-left: 4px; vertical-align: top; }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; margin: 12px 0 8px; }
+.chips button { border: 2px solid var(--line); background: #fff; border-radius: 99px; padding: 4px 12px; min-height: 34px; font-size: 13px; }
+.chips button.on { border-color: var(--ink); background: var(--ink); color: #fff; }
+.company { margin-bottom: 4px; }
+
+/* ---------- 出店 ---------- */
+.expand-status.ready { background: #eaf6ec; border-color: var(--pos); }
+.checks { list-style: none; padding: 0; margin: 0; display: grid; gap: 4px; }
+.checks li { font-size: 13px; }
+.checks small { color: var(--ink-2); }
+.site { cursor: pointer; }
+.site.selected { border-color: var(--orange); box-shadow: 0 3px 0 var(--orange); }
+.site-head { display: flex; flex-direction: column; }
+.site-desc { margin: 4px 0 8px; font-size: 13px; }
+.seg-bars { display: grid; gap: 3px; margin-bottom: 8px; }
+.seg-row { display: grid; grid-template-columns: 72px 1fr 52px; gap: 6px; align-items: center; font-size: 12px; }
+.seg-bar { height: 8px; background: var(--paper-2); border-radius: 99px; overflow: hidden; }
+.seg-bar span { display: block; height: 100%; }
+.seg-v { text-align: right; font-family: var(--pixel); }
+button.wide { width: 100%; }
+button.primary:disabled { background: #b8b0a3; box-shadow: 0 3px 0 #9a9286; cursor: not-allowed; }
+.trend-col .invest { position: absolute; top: 0; font-size: 10px; }
 
 /* ---------- 発注 ---------- */
 .tomorrow { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; background: #fff8e6; }

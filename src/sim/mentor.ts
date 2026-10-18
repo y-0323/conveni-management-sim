@@ -31,6 +31,14 @@ export function mentorComments(r: DayReport, history: DayReport[]): MentorCommen
     }
   }
 
+  if (r.rushCount > 0) {
+    out.push({
+      tone: 'info',
+      title: `🚚 緊急補充 ${r.rushCount}回`,
+      body: `配送料 ${yen(r.rushFees)} がかかりました。品切れを防げたなら価値はありますが、毎朝の発注で需要に合わせられれば配送料はゼロ。1回にまとめて頼むほど1個あたりの配送料は安くなります。`,
+    });
+  }
+
   if (r.weather.kind === 'rain') {
     out.push({ tone: 'info', title: '☔ 雨の日', body: `雨で来店が減りました（来店 ${r.visits}人）。特に近所の住民は雨だと外出を控えます。天気予報を見て発注を調整しましょう。` });
   }
@@ -46,6 +54,10 @@ export function mentorComments(r: DayReport, history: DayReport[]): MentorCommen
     });
   }
 
+  if (r.depreciation > 0 && history.length === 0) {
+    out.push({ tone: 'info', title: '🎉 新店オープン', body: `初日の来店は ${r.visits}人。新しい店は評判がまだ低めで、実績がないので発注は本部の標準値です。数日分の実績がたまると予測が当たりやすくなります。` });
+  }
+
   if (out.filter((c) => c.tone !== 'info').length === 0) {
     const gm = r.sales ? r.grossProfit / r.sales : 0;
     out.push({
@@ -54,7 +66,7 @@ export function mentorComments(r: DayReport, history: DayReport[]): MentorCommen
       body:
         r.operatingProfit >= 0
           ? `粗利率 ${pct(gm)}、営業利益 ${yen(r.operatingProfit)}。廃棄も品切れも少ない、良い発注でした。`
-          : `粗利 ${yen(r.grossProfit)} では人件費・家賃 ${yen(r.labor + r.rent)} をまかなえません。売上を増やすか粗利率の高い商品を伸ばしましょう。`,
+          : `粗利 ${yen(r.grossProfit)} では人件費・家賃など ${yen(r.labor + r.rent + r.depreciation)} をまかなえません。売上を増やすか粗利率の高い商品を伸ばしましょう。`,
     });
   }
   return out.slice(0, 4);

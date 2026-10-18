@@ -1,4 +1,5 @@
 import { render } from 'preact';
+import { controller } from './core/controller';
 import { App } from './ui/App';
 import './style.css';
 
@@ -11,5 +12,8 @@ async function boot() {
   }
   render(<App />, document.getElementById('app')!);
 }
+
+// 開発中だけ、ブラウザのコンソールから状態を確認・操作できるようにする
+if (import.meta.env.DEV) (window as unknown as { __game: typeof controller }).__game = controller;
 
 boot();

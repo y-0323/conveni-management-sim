@@ -5,7 +5,7 @@ export const MAP_H = 34;
 
 export type Ground = 'grass' | 'road' | 'sidewalk' | 'crosswalk' | 'plaza' | 'rail';
 
-export type BuildingKind = 'house' | 'apartment' | 'office' | 'station' | 'school' | 'store' | 'parking' | 'park';
+export type BuildingKind = 'house' | 'apartment' | 'office' | 'station' | 'school' | 'store' | 'lot' | 'parking' | 'park';
 
 export interface Building {
   id: string;
@@ -74,12 +74,13 @@ export const BUILDINGS: Building[] = [
   b('store', 'store', 17, 13, 6, 4, 'top', { label: 'まちかどマート' }),
   b('parking', 'parking', 23, 13, 5, 4, 'none'),
   b('park', 'park', 17, 18, 14, 3, 'none'),
-  b('o3', 'office', 28, 13, 3, 4, 'top', { label: '' }),
+  b('lot-office', 'lot', 28, 13, 3, 4, 'top'),
   // 右中：学校
   b('school', 'school', 36, 13, 11, 6, 'top', { label: 'まちかど高校' }),
+  b('lot-school', 'lot', 40, 19, 5, 3, 'bottom'),
   // 下：マンション
   b('a1', 'apartment', 1, 26, 5, 6, 'top', { color: 0xb08968 }),
-  b('a2', 'apartment', 7, 26, 5, 6, 'top', { color: 0x8d99ae }),
+  b('lot-home', 'lot', 7, 26, 5, 4, 'top'),
   b('a3', 'apartment', 17, 26, 6, 6, 'top', { color: 0xa98467 }),
   b('a4', 'apartment', 25, 26, 6, 6, 'top', { color: 0x6c757d }),
   b('a5', 'apartment', 36, 26, 5, 6, 'top', { color: 0xc9ada7 }),
@@ -95,7 +96,9 @@ export const ORIGINS = {
   house: BUILDINGS.filter((x) => (x.kind === 'house' || x.kind === 'apartment') && x.front),
 };
 
-export const ALL_DOORS = BUILDINGS.filter((x) => x.front && x.kind !== 'store');
+export const ALL_DOORS = BUILDINGS.filter((x) => x.front && x.kind !== 'store' && x.kind !== 'lot');
+
+export const buildingById = (id: string) => BUILDINGS.find((x) => x.id === id)!;
 
 export function walkable(x: number, y: number): boolean {
   if (x < 0 || y < 0 || x >= MAP_W || y >= MAP_H) return false;

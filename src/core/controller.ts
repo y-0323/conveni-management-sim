@@ -1,30 +1,42 @@
 // 実時間とシミュレーションをつなぐ進行役。UI（Preact）と描画（Phaser）の両方がこれを購読する
+import type { SiteId } from '../data/sites';
 import { clockOf } from '../sim/calendar';
-import { dispatch, newGame, step } from '../sim/simulation';
-import type { Command, DayReport, SimState, VisitEvent } from '../sim/types';
+import { dispatch, newGame, step, storeOf } from '../sim/simulation';
+import type { Command, CompanyDay, DayReport, SimState, StoreState, TickResult, VisitEvent } from '../sim/types';
 import { clearSave, loadGame, saveGame } from './save';
 
 export type Speed = 0 | 1 | 3 | 10;
-export type Tab = 'store' | 'order' | 'reports';
+export type Tab = 'store' | 'order' | 'reports' | 'expand';
+export type View = 'interior' | 'town';
 
 /** 1倍速で、ゲーム内15分 = 実時間1.5秒（1日 = 2分24秒） */
 export const REAL_MS_PER_TICK = 1500;
 
 type Listener = () => void;
 
+export interface PendingDay {
+  reports: DayReport[];
+  company: CompanyDay;
+}
+
 export class GameController {
   state: SimState;
   speed: Speed = 1;
-  /** 日報を見ている間などは時間を止める */
-  pendingReport: DayReport | null = null;
+  /** 日報を見ている間は時間を止める */
+  pending: PendingDay | null = null;
   showIntro: boolean;
   tab: Tab = 'store';
+  view: View = 'interior';
+  selectedSite: SiteId = 'main';
+  /** 出店画面で選んでいる物件 */
+  expandTarget: SiteId | null = null;
   /** 再描画の判定用。状態が変わるたびに増える */
   version = 0;
 
   private acc = 0;
   private listeners = new Set<Listener>();
   private visitListeners = new Set<(v: VisitEvent[]) => void>();
+  private arrivalListeners = new Set<(a: TickResult['arrivals']) => void>();
 
   constructor() {
     const saved = loadGame();
@@ -36,11 +48,15 @@ export class GameController {
     return clockOf(this.state.tick);
   }
 
-  get running() {
-    return this.speed > 0 && !this.pendingReport && !this.showIntro && !this.state.bankrupt;
+  get store(): StoreState {
+    return storeOf(this.state, this.selectedSite) ?? this.state.stores[0];
   }
 
-  /** 進行の割合（0-1）：次の15分までどれだけ進んだか。描画の補間に使う */
+  get running() {
+    return this.speed > 0 && !this.pending && !this.showIntro && !this.state.bankrupt;
+  }
+
+  /** 次の15分までどれだけ進んだか（0-1）。描画の補間に使う */
   get tickProgress() {
     return this.acc / REAL_MS_PER_TICK;
   }
@@ -54,8 +70,9 @@ export class GameController {
       const r = step(this.state);
       changed = true;
       if (r.visits.length) this.visitListeners.forEach((fn) => fn(r.visits));
-      if (r.report) {
-        this.pendingReport = r.report;
+      if (r.arrivals.length) this.arrivalListeners.forEach((fn) => fn(r.arrivals));
+      if (r.reports && r.company) {
+        this.pending = { reports: r.reports, company: r.company };
         this.acc = 0;
         saveGame(this.state);
         break;
@@ -74,14 +91,37 @@ export class GameController {
     this.notify();
   }
 
+  setView(v: View) {
+    this.view = v;
+    this.notify();
+  }
+
+  selectStore(siteId: SiteId, view?: View) {
+    if (!storeOf(this.state, siteId)) return;
+    this.selectedSite = siteId;
+    if (view) this.view = view;
+    this.notify();
+  }
+
+  showExpansion(siteId: SiteId | null) {
+    this.expandTarget = siteId;
+    this.tab = 'expand';
+    this.notify();
+  }
+
   dispatch(cmd: Command) {
     dispatch(this.state, cmd);
+    if (cmd.type === 'openStore' && storeOf(this.state, cmd.siteId)) {
+      this.selectedSite = cmd.siteId;
+      this.expandTarget = null;
+      this.tab = 'order';
+    }
     saveGame(this.state);
     this.notify();
   }
 
   closeReport() {
-    this.pendingReport = null;
+    this.pending = null;
     this.notify();
   }
 
@@ -93,10 +133,13 @@ export class GameController {
   restart() {
     clearSave();
     this.state = newGame(Math.floor(Math.random() * 1e9));
-    this.pendingReport = null;
+    this.pending = null;
     this.showIntro = true;
     this.speed = 1;
     this.acc = 0;
+    this.selectedSite = 'main';
+    this.view = 'interior';
+    this.tab = 'store';
     this.notify();
   }
 
@@ -108,6 +151,11 @@ export class GameController {
   onVisits(fn: (v: VisitEvent[]) => void) {
     this.visitListeners.add(fn);
     return () => this.visitListeners.delete(fn);
+  }
+
+  onArrivals(fn: (a: TickResult['arrivals']) => void) {
+    this.arrivalListeners.add(fn);
+    return () => this.arrivalListeners.delete(fn);
   }
 
   notify() {

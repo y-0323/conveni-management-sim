@@ -1,5 +1,6 @@
 import type { GameController, Speed } from '../core/controller';
 import { dayLabel, timeLabel } from '../sim/calendar';
+import { weatherOf } from '../sim/simulation';
 import { WEATHER_ICON, yen } from './format';
 
 const SPEEDS: Array<{ s: Speed; label: string; title: string }> = [
@@ -11,7 +12,7 @@ const SPEEDS: Array<{ s: Speed; label: string; title: string }> = [
 
 export function Hud({ c }: { c: GameController }) {
   const clock = c.clock;
-  const w = c.state.today.weather;
+  const w = weatherOf(c.state, clock.day);
   const night = clock.hour < 6 || clock.hour >= 19;
   return (
     <header class="hud">
@@ -19,7 +20,7 @@ export function Hud({ c }: { c: GameController }) {
         <span class="hud-logo">まちかど<b>マート</b></span>
       </div>
       <div class="hud-clock">
-        <span class="hud-day">{c.state.today.day}日目</span>
+        <span class="hud-day">{clock.day}日目</span>
         <span class="hud-date">{dayLabel(clock.day)}</span>
         <span class="hud-time">
           {night ? '🌙' : '🕒'} {timeLabel(clock)}

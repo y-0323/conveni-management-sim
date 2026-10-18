@@ -107,7 +107,7 @@ function drawBuilding(ctx: Ctx, lit: Ctx, bl: Building) {
   const h = bl.h * TILE;
   const doorTop = bl.door && bl.door.y === bl.y;
   // 影
-  if (bl.kind !== 'park' && bl.kind !== 'parking') px(ctx, 'rgba(0,0,0,0.2)', x + 3, y + 3, w, h);
+  if (bl.kind !== 'park' && bl.kind !== 'parking' && bl.kind !== 'lot') px(ctx, 'rgba(0,0,0,0.2)', x + 3, y + 3, w, h);
 
   switch (bl.kind) {
     case 'house': {
@@ -156,17 +156,22 @@ function drawBuilding(ctx: Ctx, lit: Ctx, bl: Building) {
       break;
     }
     case 'store': {
-      px(ctx, '#fafafa', x, y, w, h);
-      px(ctx, '#2e8b57', x, y + 3, w, 3);
-      px(ctx, '#f4a261', x, y + 6, w, 2);
-      px(ctx, '#e63946', x, y + 8, w, 2);
-      // ガラス張り
-      px(ctx, '#9ed0e6', x + 4, y + 14, w - 8, 14);
-      px(lit, '#fff6cc', x + 4, y + 14, w - 8, 14);
-      for (let i = x + 4; i < x + w - 4; i += 10) px(ctx, '#d9d9d9', i, y + 14, 1, 14);
-      px(ctx, '#d0d0d0', x, y + h - 6, w, 6);
-      // 看板の照明
-      px(lit, '#fffbe6', x, y + 3, w, 7);
+      drawShop(ctx, lit, x, y, w, h);
+      break;
+    }
+    case 'lot': {
+      // 空き物件：更地＋フェンス＋「テナント募集」の看板
+      px(ctx, '#b89f7e', x, y, w, h);
+      for (let i = 0; i < 18; i++) px(ctx, '#a68c69', x + Math.floor(noise(i, bl.x) * (w - 2)), y + Math.floor(noise(bl.y, i) * (h - 2)), 2, 1);
+      for (let i = x; i < x + w; i += 4) {
+        px(ctx, '#e9ecef', i, y, 1, 4);
+        px(ctx, '#e9ecef', i, y + h - 4, 1, 4);
+      }
+      px(ctx, '#e9ecef', x, y + 1, w, 1);
+      px(ctx, '#e9ecef', x, y + h - 3, w, 1);
+      px(ctx, '#ffffff', x + w / 2 - 12, y + h / 2 - 7, 24, 12);
+      px(ctx, '#e63946', x + w / 2 - 12, y + h / 2 - 7, 24, 3);
+      px(ctx, '#6c757d', x + w / 2 - 1, y + h / 2 + 5, 2, 4);
       break;
     }
     case 'parking': {
@@ -191,7 +196,7 @@ function drawBuilding(ctx: Ctx, lit: Ctx, bl: Building) {
     }
   }
 
-  if (bl.door) {
+  if (bl.door && bl.kind !== 'lot') {
     const dx = bl.door.x * TILE + 4;
     const dy = doorTop ? y : y + h - 9;
     const doorColor = bl.kind === 'store' ? '#bfe6f5' : bl.kind === 'house' ? '#7f5539' : '#495057';
@@ -201,6 +206,43 @@ function drawBuilding(ctx: Ctx, lit: Ctx, bl: Building) {
       px(lit, '#fff6cc', dx, dy, 8, 9);
     }
   }
+}
+
+/** コンビニの外観（看板の帯・ガラス張り）。1号店と新店で共通 */
+function drawShop(ctx: Ctx, lit: Ctx, x: number, y: number, w: number, h: number) {
+  px(ctx, '#fafafa', x, y, w, h);
+  px(ctx, '#2e8b57', x, y + 3, w, 3);
+  px(ctx, '#f4a261', x, y + 6, w, 2);
+  px(ctx, '#e63946', x, y + 8, w, 2);
+  const gh = Math.min(14, h - 22);
+  px(ctx, '#9ed0e6', x + 4, y + 14, w - 8, gh);
+  px(lit, '#fff6cc', x + 4, y + 14, w - 8, gh);
+  for (let i = x + 4; i < x + w - 4; i += 10) px(ctx, '#d9d9d9', i, y + 14, 1, gh);
+  px(ctx, '#d0d0d0', x, y + h - 6, w, 6);
+  px(lit, '#fffbe6', x, y + 3, w, 7);
+}
+
+/** 新しく出店した店の外観テクスチャ（空き物件の上に重ねる） */
+export function buildShopTexture(scene: Phaser.Scene, bl: Building) {
+  const key = `shop-${bl.id}`;
+  if (scene.textures.exists(key)) return key;
+  const w = bl.w * TILE;
+  const h = bl.h * TILE;
+  const base = scene.textures.createCanvas(key, w + 3, h + 3)!;
+  const lit = scene.textures.createCanvas(`${key}-lit`, w + 3, h + 3)!;
+  const ctx = base.getContext();
+  const lctx = lit.getContext();
+  px(ctx, 'rgba(0,0,0,0.2)', 3, 3, w, h);
+  drawShop(ctx, lctx, 0, 0, w, h);
+  const doorTop = bl.door!.y === bl.y;
+  const dx = (bl.door!.x - bl.x) * TILE + 4;
+  const dy = doorTop ? 0 : h - 9;
+  px(ctx, '#bfe6f5', dx, dy, 8, 9);
+  px(ctx, '#ffffff', dx + 3, dy, 2, 9);
+  px(lctx, '#fff6cc', dx, dy, 8, 9);
+  base.refresh();
+  lit.refresh();
+  return key;
 }
 
 function drawDecorations(ctx: Ctx) {
@@ -217,6 +259,7 @@ function drawDecorations(ctx: Ctx) {
 
 /** 街の地面＋建物のテクスチャと、夜に光る窓のテクスチャを作る */
 export function buildTownTextures(scene: Phaser.Scene) {
+  if (scene.textures.exists('town')) return;
   const W = MAP_W * TILE;
   const H = MAP_H * TILE;
   const base = scene.textures.createCanvas('town', W, H)!;
@@ -233,6 +276,7 @@ export function buildTownTextures(scene: Phaser.Scene) {
 
 /** 歩く人（8×12）。2コマの歩きアニメ */
 export function buildWalkerTextures(scene: Phaser.Scene, key: string, body: number, hair: number) {
+  if (scene.textures.exists(`${key}-0`)) return; // 店内と街で共用
   for (let f = 0; f < 2; f++) {
     const t = scene.textures.createCanvas(`${key}-${f}`, 8, 13)!;
     const c = t.getContext();
@@ -251,6 +295,7 @@ export function buildWalkerTextures(scene: Phaser.Scene, key: string, body: numb
 }
 
 export function buildMiscTextures(scene: Phaser.Scene) {
+  if (scene.textures.exists('raindrop')) return;
   // 車（横向き 14×8 と 縦向き 8×14）
   const colors = [0xe63946, 0x457b9d, 0xf4a261, 0x2a9d8f, 0xffffff, 0x6d597a];
   colors.forEach((col, i) => {

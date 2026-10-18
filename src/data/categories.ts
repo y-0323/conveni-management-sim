@@ -54,7 +54,4 @@ export const CATEGORIES: Category[] = [
   },
 ];
 
-/** 実績がない時に推奨発注で使う、本部の標準的な1日の需要 */
-export const ECONOMY_FALLBACK: Record<CategoryId, number> = { bento: 330, drink: 380, hotsnack: 160 };
-
 export const CATEGORY_BY_ID = Object.fromEntries(CATEGORIES.map((c) => [c.id, c])) as Record<CategoryId, Category>;

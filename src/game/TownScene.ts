@@ -2,9 +2,13 @@ import Phaser from 'phaser';
 import { controller } from '../core/controller';
 import { CATEGORY_BY_ID } from '../data/categories';
 import { SEGMENTS, type SegmentId } from '../data/segments';
-import { ALL_DOORS, BUILDINGS, findPath, MAP_H, MAP_W, ORIGINS, STORE, TILE, type Building, type Pt } from '../data/town';
+import { CATEGORIES } from '../data/categories';
+import { SITE_BY_ID, SITES, type SiteId } from '../data/sites';
+import { ALL_DOORS, BUILDINGS, buildingById, findPath, MAP_H, MAP_W, ORIGINS, STORE, TILE, type Building, type Pt } from '../data/town';
+import { isOpen, shelfRatio, stockOf, storeOf, weatherOf } from '../sim/simulation';
 import type { VisitEvent } from '../sim/types';
-import { buildMiscTextures, buildTownTextures, buildWalkerTextures } from './art';
+import { buildMiscTextures, buildShopTexture, buildTownTextures, buildWalkerTextures } from './art';
+import { LOW_STOCK } from './StoreScene';
 
 const WORLD_W = MAP_W * TILE;
 const WORLD_H = MAP_H * TILE;
@@ -21,6 +25,7 @@ interface Walker {
   phase: 'toStore' | 'inside' | 'home' | 'stroll';
   wait: number;
   origin: Building;
+  shop?: Building;
   visit?: VisitEvent;
   animT: number;
 }
@@ -46,9 +51,13 @@ export class TownScene extends Phaser.Scene {
   private pinch: { dist: number; zoom: number } | null = null;
   private dragMoved = 0;
   private unsub: Array<() => void> = [];
+  /** 店舗ごとの表示物（外観・看板・在庫警告） */
+  private sites = new Map<SiteId, { shop?: Phaser.GameObjects.Image; lit?: Phaser.GameObjects.Image; label: Phaser.GameObjects.Text; badge: Phaser.GameObjects.Text; state: string }>();
+  private blink = 0;
 
   constructor() {
-    super('town');
+    // 起動時から作っておき、見ていない間は眠らせる（index.ts で切り替え）
+    super({ key: 'town', active: true });
   }
 
   create() {
@@ -98,11 +107,34 @@ export class TownScene extends Phaser.Scene {
 
     this.setupCamera();
 
-    // 店をタップしたら店舗タブを開く
-    const storeZone = this.add.zone(STORE.x * TILE, STORE.y * TILE, STORE.w * TILE, STORE.h * TILE).setOrigin(0).setInteractive({ cursor: 'pointer' });
-    storeZone.on('pointerup', () => {
-      if (this.dragMoved < 6) controller.setTab('store');
-    });
+    // 店をタップしたら店内へ、空き物件をタップしたら出店画面へ
+    for (const site of SITES) {
+      const bl = buildingById(site.buildingId);
+      const zone = this.add.zone(bl.x * TILE, bl.y * TILE, bl.w * TILE, bl.h * TILE).setOrigin(0).setInteractive({ cursor: 'pointer' });
+      zone.on('pointerup', () => {
+        if (this.dragMoved >= 6) return;
+        if (storeOf(controller.state, site.id)) controller.selectStore(site.id, 'interior');
+        else controller.showExpansion(site.id);
+      });
+      const label = this.add
+        .text(bl.x * TILE + (bl.w * TILE) / 2, (bl.door!.y === bl.y ? bl.y * TILE + bl.h * TILE - 3 : bl.y * TILE + 2), '', {
+          fontFamily: FONT,
+          fontSize: '7px',
+          color: '#1d3557',
+          resolution: 4,
+          backgroundColor: '#ffffffdd',
+          padding: { x: 2, y: 0 },
+        })
+        .setOrigin(0.5, bl.door!.y === bl.y ? 1 : 0)
+        .setDepth(9003);
+      const badge = this.add
+        .text(bl.x * TILE + bl.w * TILE - 2, bl.y * TILE - 2, '!', { fontFamily: FONT, fontSize: '10px', color: '#ffffff', resolution: 4, backgroundColor: '#e07a00', padding: { x: 3, y: 0 } })
+        .setOrigin(0.5)
+        .setDepth(9600)
+        .setVisible(false);
+      this.sites.set(site.id, { label, badge, state: '' });
+    }
+    this.refreshSites();
 
     this.unsub.push(controller.onVisits((v) => this.onVisits(v)));
     this.events.once('shutdown', () => this.unsub.forEach((u) => u()));
@@ -111,7 +143,8 @@ export class TownScene extends Phaser.Scene {
   private addLabels() {
     for (const bl of BUILDINGS) {
       if (!bl.label) continue;
-      const isStore = bl.kind === 'store';
+      if (bl.kind === 'store') continue; // 店名は refreshSites で表示
+      const isStore = false;
       const y = isStore ? bl.y * TILE + 22 : bl.y * TILE + (bl.kind === 'station' ? 16 : bl.kind === 'school' ? bl.h * TILE - 3 : 6);
       this.add
         .text(bl.x * TILE + (bl.w * TILE) / 2, y, bl.label, {
@@ -218,6 +251,7 @@ export class TownScene extends Phaser.Scene {
 
   // ---------- 歩く人 ----------
   private onVisits(visits: VisitEvent[]) {
+    if (this.sys.isSleeping() || !this.sys.isVisible()) return;
     // 倍速時は間引いて「代表者」だけ歩かせる
     const rate = 1 / Math.max(1, controller.speed);
     for (const v of visits) {
@@ -229,10 +263,14 @@ export class TownScene extends Phaser.Scene {
 
   private spawnVisitor(v: VisitEvent) {
     const seg = SEGMENTS.find((s) => s.id === v.segment)!;
-    const origin = pick(ORIGINS[seg.origin]);
-    const path = findPath(origin.front!, STORE.front!);
+    const shop = buildingById(SITE_BY_ID[v.siteId].buildingId);
+    // 近い建物から来やすい（商圏）：候補から3つ選んで一番近いところ
+    const cands = [pick(ORIGINS[seg.origin]), pick(ORIGINS[seg.origin]), pick(ORIGINS[seg.origin])];
+    const dist = (b: Building) => Math.abs(b.front!.x - shop.front!.x) + Math.abs(b.front!.y - shop.front!.y);
+    const origin = cands.sort((a, b) => dist(a) - dist(b))[0];
+    const path = findPath(origin.front!, shop.front!);
     if (!path) return;
-    this.addWalker(`w-${v.segment as SegmentId}`, origin, path, 'toStore', v);
+    this.addWalker(`w-${v.segment as SegmentId}`, origin, path, 'toStore', v, shop);
   }
 
   private spawnStroller() {
@@ -244,7 +282,7 @@ export class TownScene extends Phaser.Scene {
     this.addWalker(`w-amb${Math.floor(Math.random() * 5)}`, a, path, 'stroll');
   }
 
-  private addWalker(key: string, origin: Building, path: Pt[], phase: Walker['phase'], visit?: VisitEvent) {
+  private addWalker(key: string, origin: Building, path: Pt[], phase: Walker['phase'], visit?: VisitEvent, shop?: Building) {
     const sprite = this.add.sprite(0, 0, `${key}-0`).setOrigin(0.5, 1);
     const w: Walker = {
       sprite,
@@ -256,6 +294,7 @@ export class TownScene extends Phaser.Scene {
       phase,
       wait: 0,
       origin,
+      shop,
       visit,
       animT: Math.random() * 200,
     };
@@ -282,8 +321,9 @@ export class TownScene extends Phaser.Scene {
 
   private finishShopping(w: Walker) {
     const v = w.visit!;
-    const x = STORE.front!.x * TILE + 8;
-    const y = STORE.y * TILE - 2;
+    const shop = w.shop ?? STORE;
+    const x = shop.front!.x * TILE + 8;
+    const y = shop.front!.y * TILE + (shop.door!.y === shop.y ? 14 : 2);
     if (v.bought.length) {
       const yen = v.bought.reduce((a, id) => a + CATEGORY_BY_ID[id].price, 0);
       this.popup(`+¥${yen}`, x + 14, y - 4, '#2a7a3b');
@@ -339,7 +379,6 @@ export class TownScene extends Phaser.Scene {
 
   // ---------- 1フレームごと ----------
   update(_time: number, delta: number) {
-    controller.update(delta);
     const speed = controller.running ? controller.speed : 0;
     const dt = Math.min(delta, 100);
 
@@ -372,6 +411,42 @@ export class TownScene extends Phaser.Scene {
     }
 
     this.updateLighting();
+    this.refreshSites(dt);
+  }
+
+  /** 出店状況に合わせて外観・看板を更新し、品薄の店に「!」を出す */
+  private refreshSites(dt = 0) {
+    this.blink += dt;
+    const day = controller.clock.day;
+    for (const site of SITES) {
+      const v = this.sites.get(site.id)!;
+      const store = storeOf(controller.state, site.id);
+      const bl = buildingById(site.buildingId);
+      const state = !store ? 'vacant' : isOpen(store, day) ? 'open' : 'preparing';
+      if (state !== v.state) {
+        v.state = state;
+        if (store && site.id !== 'main' && !v.shop) {
+          const key = buildShopTexture(this, bl);
+          v.shop = this.add.image(bl.x * TILE, bl.y * TILE, key).setOrigin(0).setDepth(3);
+          v.lit = this.add.image(bl.x * TILE, bl.y * TILE, `${key}-lit`).setOrigin(0).setDepth(9001).setAlpha(this.lit.alpha);
+        }
+        v.label
+          .setText(state === 'vacant' ? `空き物件 ${Math.round(site.openCost / 10000)}万円` : state === 'preparing' ? '開店準備中' : site.name)
+          .setColor(state === 'vacant' ? '#7a4b00' : '#1d3557');
+      }
+      v.lit?.setAlpha(this.lit.alpha);
+      let alert: 'empty' | 'low' | null = null;
+      if (store && state === 'open') {
+        for (const c of CATEGORIES) {
+          if (store.today.cats[c.id].startStock <= 0) continue;
+          if (stockOf(store, c.id) <= 0) alert = 'empty';
+          else if (!alert && shelfRatio(store, c.id) < LOW_STOCK) alert = 'low';
+        }
+      }
+      v.badge
+        .setVisible(!!alert && (alert === 'low' || Math.floor(this.blink / 400) % 2 === 0))
+        .setBackgroundColor(alert === 'empty' ? '#c1121f' : '#e07a00');
+    }
   }
 
   private updateLighting() {
@@ -384,8 +459,9 @@ export class TownScene extends Phaser.Scene {
     else if (m < 17 * 60) dark = 0;
     else if (m < 19 * 60) dark = (m - 1020) / 120;
     else dark = 1;
-    const rainy = controller.state.today.weather.kind === 'rain';
-    const cloudy = controller.state.today.weather.kind === 'cloudy';
+    const weather = weatherOf(controller.state, clock.day);
+    const rainy = weather.kind === 'rain';
+    const cloudy = weather.kind === 'cloudy';
     this.night.setFillStyle(rainy ? 0x1d2840 : 0x0b1440, Math.max(dark * 0.62, rainy ? 0.22 : cloudy ? 0.08 : 0));
     this.lit.setAlpha(Math.min(1, dark * 1.2 + (rainy ? 0.15 : 0)));
     for (const g of this.glows) g.setAlpha(dark * 0.85);
